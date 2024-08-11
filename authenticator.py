@@ -1,6 +1,7 @@
 import boto3
 import argparse
-import sys
+from modules import *
+
 
 def authenticate(**kwargs):
     if kwargs["profile"]:
@@ -8,7 +9,7 @@ def authenticate(**kwargs):
         session = boto3.Session(profile_name=kwargs["profile"])
         client = session.client("sts")  # sts for temporary identification
         response = client.get_caller_identity()
-        print(response)
+        #print(response)
     elif kwargs["access_key"] and kwargs["secret_key"]:
         if kwargs["session_token"]:
             session = boto3.Session(aws_access_key_id=kwargs['access_key'],
@@ -35,6 +36,10 @@ def role_to_assume(client, role_arn):
 
 
 parser = argparse.ArgumentParser()
+
+# Module
+parser.add_argument("module", help="The module you want to run. Options: get-identity-by-action", default="")
+
 # Authentication arguments
 parser.add_argument("-p", "--profile", help="The name of the profile you want to use", default="")
 parser.add_argument("-ak", "--access_key", help="access key to authenticate aws", default="")
@@ -42,11 +47,16 @@ parser.add_argument("-sk", "--secret_key", help="secret key to authenticate aws"
 parser.add_argument("-st", "--session_token", help="session token", default="")
 parser.add_argument("-r", "--role_arn", help="ARN of role to assume", default="")
 
-# Module - Get identity by action
-parser.add_argument("get-identity-by-action", help="Get an action and return all the identities that can perform it", default="")
+#
+parser.add_argument("-a", "--action", help="Action to check", default="")
+
 
 args = parser.parse_args()
 
-authenticate(profile=args.profile, access_key=args.access_key, secret_key=args.secret_key,
+session = authenticate(profile=args.profile, access_key=args.access_key, secret_key=args.secret_key,
              session_token=args.session_token, role_arn=args.role_arn)
+
+module = args.module
+if module == "get-identity-by-action":
+    get_identity_by_action(args.action, session)
 

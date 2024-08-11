@@ -1,6 +1,6 @@
 import boto3
 import argparse
-
+import sys
 
 def authenticate(**kwargs):
     if kwargs["profile"]:
@@ -25,7 +25,7 @@ def authenticate(**kwargs):
         session = role_to_assume(client=client, role_arn=kwargs["role_arn"])
 
     return session
-#gives the keys to use the role
+#gives keys to use the role
 def role_to_assume(client, role_arn):
     response = client.assume_role(RoleArn=role_arn, RoleSessionName="aws_toolkit")
     session = boto3.Session(aws_access_key_id=response['Credentials']['AccessKeyId'],
@@ -35,12 +35,18 @@ def role_to_assume(client, role_arn):
 
 
 parser = argparse.ArgumentParser()
+# Authentication arguments
 parser.add_argument("-p", "--profile", help="The name of the profile you want to use", default="")
 parser.add_argument("-ak", "--access_key", help="access key to authenticate aws", default="")
 parser.add_argument("-sk", "--secret_key", help="secret key to authenticate aws", default="")
 parser.add_argument("-st", "--session_token", help="session token", default="")
 parser.add_argument("-r", "--role_arn", help="ARN of role to assume", default="")
+
+# Module - Get identity by action
+parser.add_argument("get-identity-by-action", help="Get an action and return all the identities that can perform it", default="")
+
 args = parser.parse_args()
 
 authenticate(profile=args.profile, access_key=args.access_key, secret_key=args.secret_key,
              session_token=args.session_token, role_arn=args.role_arn)
+

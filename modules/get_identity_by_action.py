@@ -1,4 +1,4 @@
-def get_identity_by_action(action, session):
+def get_identity_by_action(session, action):
     client = session.client("iam")
     users_list = client.list_users()
     role_list = client.list_roles()

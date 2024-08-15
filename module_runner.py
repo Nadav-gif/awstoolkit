@@ -1,6 +1,6 @@
-from modules.get_identity_by_action import get_identity_by_action
+from modules.who_can import who_can
 
 
 def run_module(session, parameters):
-    if parameters.module == "get_identity_by_action":
-        get_identity_by_action(session, parameters.action)
+    if parameters.module == "who-can":
+        who_can(session, parameters.action)

@@ -5,7 +5,7 @@ def get_parameters():
     parser = argparse.ArgumentParser()
 
     # Module
-    parser.add_argument("module", help="The module you want to run. Options: get-identity-by-action", default="")
+    parser.add_argument("module", help="The module you want to run. Options: who-can", default="")
 
     # Authentication arguments
     parser.add_argument("-p", "--profile", help="The name of the profile you want to use", default="")

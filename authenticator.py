@@ -39,7 +39,7 @@ def role_to_assume(session, role_arn):
         print("Failed to assume role - Check role ARN and policies")
         exit()
 
-
+    return session
 def check_session_validity(session):
     try:
         client = session.client("sts")  # sts for temporary identification

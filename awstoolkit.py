@@ -1,4 +1,4 @@
-from parameter_builder import get_parameters, authentication_parameters_validator, module_parameters_validator
+from parameter_builder import get_parameters, module_parameters_validator
 from authenticator import authenticate
 from module_runner import run_module
 

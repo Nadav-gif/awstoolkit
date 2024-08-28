@@ -59,20 +59,14 @@ def create_identity_list(client):
     return identity_list
 
 
-def compare_boundary_to_allow_list(client, allow_list, permissions_boundary):
-    # The function gets identity allow list format [{'action': 'a4b:Get*', 'resource': '*'}] and the permission boundary in the same format.
-    # It then makes the calculation and return a list in the same format, but limit it only for the relevant actions and resources that exist in both.
-    permissions_boundary_content = get_managed_policy_content(client, permissions_boundary)
-    permissions_boundary_allow_list = []
-    for statement in permissions_boundary_content:
-        permissions_boundary_allow_list = statement_parser(statement, permissions_boundary_allow_list, [])
-
-    permissions_boundary_allow_list = permissions_boundary_allow_list[0]  # Keep only the allow list
+def get_policies_intersection(actions_list, restricted_list):
+    # Get two lists of the format [{'action': 'a4b:Get*', 'resource': '*'}], and return the intersection between them
+    # This is useful to bring an allow_list from identities' policies and a list of the permission limiter (like SCP, or Permission Boundary). and get the actual permissions.
     calculated_allow_list = []
-
-    for action in allow_list:
-        for boundary_action in permissions_boundary_allow_list:
+    for action in actions_list:
+        for boundary_action in restricted_list:
             final_resource_list = []
+
             if re.search(boundary_action["action"].replace("*", ".*"), action["action"]):  # The Allow list action is contained in the PB (PB is bigger)
                 for resource in action["resource"]:
                     for boundary_resource in boundary_action["resource"]:
@@ -81,7 +75,6 @@ def compare_boundary_to_allow_list(client, allow_list, permissions_boundary):
                         elif re.search(resource.replace("*", ".*"), boundary_resource):
                             final_resource_list.append(boundary_resource)
                 calculated_allow_list.append({"action": action["action"], "resource": final_resource_list}) #  The final action is the one from allow list
-
 
             if re.search(action["action"].replace("*", ".*"), boundary_action["action"]):  # The PB action is contained in the Allow List (AL is bigger)
                 for resource in action["resource"]:
@@ -95,17 +88,68 @@ def compare_boundary_to_allow_list(client, allow_list, permissions_boundary):
     return calculated_allow_list
 
 
+def get_scp_content(sessions, target_id, allow_list, deny_list):
+    organizations_client = sessions[1].client("organizations")
+    account_scp_policies = organizations_client.list_policies_for_target(TargetId=target_id,
+                                                                         Filter="SERVICE_CONTROL_POLICY")
+    scp_allow_list, scp_deny_list = [], []
+    for policy in account_scp_policies["Policies"]:
+        scp_policy_content = organizations_client.describe_policy(PolicyId=policy["Id"])["Policy"]["Content"]
+        scp_policy_content = eval(scp_policy_content)
+        for statement in scp_policy_content["Statement"]:
+            scp_allow_list, scp_deny_list = statement_parser(statement, scp_allow_list, scp_deny_list)
+
+    calculated_allow_list = get_policies_intersection(allow_list, scp_allow_list)
+    calculated_deny_list = deny_list + scp_deny_list
+
+    return calculated_allow_list, calculated_deny_list
+
+
+def calculate_scp(sessions, allow_list, deny_list):
+    session = sessions[0]
+    sts_client = session.client("sts")
+    target_id = sts_client.get_caller_identity()["Account"]
+    allow_list, deny_list = get_scp_content(sessions, target_id, allow_list, deny_list) # The first comparison is between the identity policies and the SCPs that affect it directly
+    organizations_client = sessions[1].client("organizations")
+
+    while True:
+        daddy = organizations_client.list_parents(ChildId=target_id)
+        daddy_id = daddy["Parents"][0]["Id"]
+        daddy_type = daddy["Parents"][0]["Type"]
+        target_id = daddy_id
+        allow_list, deny_list = get_scp_content(sessions, target_id, allow_list, deny_list)
+        if daddy_type == "ROOT":  # Daddy's home
+            break
+
+    return allow_list, deny_list
+
+
+def calculate_permission_boundary(client, allow_list, deny_list, permissions_boundary):
+    # The function gets identity allow list format [{'action': 'a4b:Get*', 'resource': '*'}] and the permission boundary in the same format.
+    # It then makes the calculation and return a list in the same format, but limit it only for the relevant actions and resources that exist in both.
+    permissions_boundary_content = get_managed_policy_content(client, permissions_boundary)
+    permissions_boundary_allow_list, permission_boundary_deny_list = [], []
+    for statement in permissions_boundary_content:
+        permissions_boundary_allow_list, permission_boundary_deny_list = statement_parser(statement, permissions_boundary_allow_list, permission_boundary_deny_list)
+
+    calculated_allow_list = get_policies_intersection(allow_list, permissions_boundary_allow_list)
+    calculated_deny_list = deny_list + permission_boundary_deny_list
+
+    return calculated_allow_list, calculated_deny_list
+
+
 def get_affected_resources(action_parameter, identity_actions_list):
     # Get the action parameter and the actions list in format [{'action': 'a4b:Get*', 'resource': '*'}], and return a list of the affected resources.
     affected_resources = []
     for policy_action in identity_actions_list:
         if re.search(policy_action["action"].lower().replace("*", ".*"), action_parameter.lower()):
             affected_resources.append(policy_action["resource"])
-            if policy_action["resource"] == "*":
+            if policy_action["resource"] == "*" or policy_action["resource"] == ["*"]:
                 affected_resources = ["*"]
                 break
-
-    return affected_resources
+    flattened_resources = [item for sublist in affected_resources for item in
+                          (sublist if isinstance(sublist, list) else [sublist])]
+    return list(set(flattened_resources))
 
 
 def get_managed_policy_content(client, policy_arn):
@@ -172,17 +216,19 @@ def create_allow_deny_lists(client, identity):
     return identity_allow_list, identity_deny_list
 
 
-def who_can(session, action_parameter):
-    client = session.client("iam")
-    identity_list = create_identity_list(client)
+def who_can(sessions, action_parameter, include_scp):
+    iam_client = sessions[0].client("iam")
+    identity_list = create_identity_list(iam_client)
 
     with open(f"{action_parameter.replace(':', '_')}.csv", "w", newline="") as output_file:
         writer = csv.writer(output_file)
         output_file.write("Identity Name,Identity Type,Allow on,Deny on\n")
         for identity in identity_list:
-            identity_allow_list, identity_deny_list = create_allow_deny_lists(client, identity)
+            identity_allow_list, identity_deny_list = create_allow_deny_lists(iam_client, identity)
             if identity["PermissionsBoundary"]:
-                identity_allow_list = compare_boundary_to_allow_list(client, identity_allow_list, identity["PermissionsBoundary"])
+                identity_allow_list, identity_deny_list = calculate_permission_boundary(iam_client, identity_allow_list, identity_deny_list, identity["PermissionsBoundary"])
+            if include_scp:
+                identity_allow_list, identity_deny_list = calculate_scp(sessions, identity_allow_list, identity_deny_list)
             allow_affected_resources = get_affected_resources(action_parameter, identity_allow_list)
             deny_affected_resources = get_affected_resources(action_parameter, identity_deny_list)
             if deny_affected_resources == ["*"]:  # Deny all - Move to next identity

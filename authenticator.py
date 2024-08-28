@@ -1,6 +1,7 @@
 from modules import *
 import boto3
 
+
 def authenticate(**kwargs):
     if kwargs["profile"]:
         # shows current user
@@ -19,10 +20,12 @@ def authenticate(**kwargs):
         print("Enter a valid authentication method, either access keys or a profile")
         exit()
 
+    management_session = session
+
     if kwargs["role_arn"]:
         session = role_to_assume(session=session, role_arn=kwargs["role_arn"])
 
-    return session
+    return session, management_session
 
 
 # Gives keys to use the role

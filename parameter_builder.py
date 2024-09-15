@@ -33,7 +33,7 @@ def get_parameters():
 
     # Modules parameters
     parser.add_argument("-a", "--action", help="Action to check", default="")
-    parser.add_argument("-o", "--output", help="Output directory path, if not stated print to ./output/", default="output")
+    parser.add_argument("-o", "--output", help="Output directory path, if not stated export output to ./output/", default="output")
     parser.add_argument("-scp", "--include_scp", help="Analyze also the scp while calculating permissions.",
                         action=argparse.BooleanOptionalAction)
 

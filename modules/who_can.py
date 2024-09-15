@@ -1,5 +1,6 @@
 import re
 import csv
+import os
 
 
 def create_identity_list(client):
@@ -59,31 +60,36 @@ def create_identity_list(client):
     return identity_list
 
 
+def policy_intersection_resources(wider_action, thinner_action):
+    # Gets two actions and their resources compares two actions and returns the resources that are contained in both
+    # For example, if the attached policies give an identity ec2:startInstances on instances t*, and the permission boundary limit it to test, the result will be "test".
+    final_resource_list = []
+    calculated_allow_list = []
+
+    for resource in wider_action["resource"]:
+        for boundary_resource in thinner_action["resource"]:
+            if re.search(boundary_resource.replace("*", ".*"), resource):
+                final_resource_list.append(resource)
+            elif re.search(resource.replace("*", ".*"), boundary_resource):
+                final_resource_list.append(boundary_resource)
+    calculated_allow_list.append(
+        {"action": wider_action["action"], "resource": final_resource_list})  # The final action is the one from allow list
+
+    return calculated_allow_list
+
+
 def get_policies_intersection(actions_list, restricted_list):
     # Get two lists of the format [{'action': 'a4b:Get*', 'resource': '*'}], and return the intersection between them
     # This is useful to bring an allow_list from identities' policies and a list of the permission limiter (like SCP, or Permission Boundary). and get the actual permissions.
     calculated_allow_list = []
     for action in actions_list:
         for boundary_action in restricted_list:
-            final_resource_list = []
 
             if re.search(boundary_action["action"].replace("*", ".*"), action["action"]):  # The Allow list action is contained in the PB (PB is bigger)
-                for resource in action["resource"]:
-                    for boundary_resource in boundary_action["resource"]:
-                        if re.search(boundary_resource.replace("*", ".*"), resource):
-                            final_resource_list.append(resource)
-                        elif re.search(resource.replace("*", ".*"), boundary_resource):
-                            final_resource_list.append(boundary_resource)
-                calculated_allow_list.append({"action": action["action"], "resource": final_resource_list}) #  The final action is the one from allow list
+                calculated_allow_list += policy_intersection_resources(action, boundary_action)
 
             if re.search(action["action"].replace("*", ".*"), boundary_action["action"]):  # The PB action is contained in the Allow List (AL is bigger)
-                for resource in action["resource"]:
-                    for boundary_resource in boundary_action["resource"]:
-                        if re.search(boundary_resource.replace("*", ".*"), resource):
-                            final_resource_list.append(resource)
-                        elif re.search(resource.replace("*", ".*"), boundary_resource):
-                            final_resource_list.append(boundary_resource)
-                calculated_allow_list.append({"action": boundary_action["action"], "resource": final_resource_list}) #  The final action is the one from the PB
+                calculated_allow_list += policy_intersection_resources(boundary_action, action)
 
     return calculated_allow_list
 
@@ -113,7 +119,7 @@ def calculate_scp(sessions, allow_list, deny_list):
     organizations_client = sessions[1].client("organizations")
 
     while True:
-        daddy = organizations_client.list_parents(ChildId=target_id)
+        daddy = organizations_client.list_parents(ChildId=target_id)  # who's your daddy
         daddy_id = daddy["Parents"][0]["Id"]
         daddy_type = daddy["Parents"][0]["Type"]
         target_id = daddy_id
@@ -216,11 +222,13 @@ def create_allow_deny_lists(client, identity):
     return identity_allow_list, identity_deny_list
 
 
-def who_can(sessions, action_parameter, include_scp):
+def who_can(sessions, action_parameter, include_scp, output_path):
     iam_client = sessions[0].client("iam")
     identity_list = create_identity_list(iam_client)
+    output_filepath = f"{output_path}/{action_parameter.replace(':', '_')}.csv"
+    os.makedirs(os.path.dirname(output_filepath), exist_ok=True)
 
-    with open(f"{action_parameter.replace(':', '_')}.csv", "w", newline="") as output_file:
+    with open(output_filepath, "w", newline="") as output_file:
         writer = csv.writer(output_file)
         output_file.write("Identity Name,Identity Type,Allow on,Deny on\n")
         for identity in identity_list:

@@ -22,7 +22,7 @@ def get_parameters():
     parser = argparse.ArgumentParser()
 
     # Module
-    parser.add_argument("module", help="The module you want to run. Options: who-can", default="")
+    parser.add_argument("module", help="The module you want to run. Options: who-can, can-do", default="")
 
     # Authentication arguments
     parser.add_argument("-p", "--profile", help="The name of the profile you want to use", default="")
@@ -36,6 +36,7 @@ def get_parameters():
     parser.add_argument("-o", "--output", help="Output directory path, if not stated export output to ./output/", default="output")
     parser.add_argument("-scp", "--include_scp", help="Analyze also the scp while calculating permissions.",
                         action=argparse.BooleanOptionalAction)
+    parser.add_argument("-i", "--identity", help="The ARN of the identity to be checked if it can run the action", default="")
 
     args = parser.parse_args()
     return args

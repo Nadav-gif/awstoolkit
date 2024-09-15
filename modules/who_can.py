@@ -42,7 +42,7 @@ def create_identity_list(client):
         identity_list.append(
             {"Name": user["UserName"], "Type": "User", "InlinePolicies": user_inline_policies["PolicyNames"],
              "AttachedPolicies": policies_list, "PoliciesFromGroups": inline_policies_from_groups,
-             "PermissionsBoundary": user_permissions_boundary})
+             "PermissionsBoundary": user_permissions_boundary, "Arn": user["Arn"]})
 
     for role in role_list["Roles"]:
         role_attached_policies = client.list_attached_role_policies(RoleName=role["RoleName"])
@@ -55,7 +55,7 @@ def create_identity_list(client):
 
         identity_list.append(
             {"Name": role["RoleName"], "Type": "Role", "InlinePolicies": role_inline_policies["PolicyNames"],
-             "AttachedPolicies": policies_list, "PermissionsBoundary": ""})
+             "AttachedPolicies": policies_list, "PermissionsBoundary": "", "Arn":role["Arn"]})
 
     return identity_list
 
@@ -115,7 +115,7 @@ def calculate_scp(sessions, allow_list, deny_list):
     session = sessions[0]
     sts_client = session.client("sts")
     target_id = sts_client.get_caller_identity()["Account"]
-    allow_list, deny_list = get_scp_content(sessions, target_id, allow_list, deny_list) # The first comparison is between the identity policies and the SCPs that affect it directly
+    allow_list, deny_list = get_scp_content(sessions, target_id, allow_list, deny_list)  # The first comparison is between the identity policies and the SCPs that affect it directly
     organizations_client = sessions[1].client("organizations")
 
     while True:
@@ -222,7 +222,7 @@ def create_allow_deny_lists(client, identity):
     return identity_allow_list, identity_deny_list
 
 
-def who_can(sessions, action_parameter, include_scp, output_path):
+def who_can(sessions, action_parameter, include_scp, output_path, identity_can_do):
     iam_client = sessions[0].client("iam")
     identity_list = create_identity_list(iam_client)
     output_filepath = f"{output_path}/{action_parameter.replace(':', '_')}.csv"
@@ -245,6 +245,13 @@ def who_can(sessions, action_parameter, include_scp, output_path):
                 continue
             if allow_affected_resources == deny_affected_resources:  # Regarding the discussed action, resources are the same for Allow and Deny effects. Move to next identity.
                 continue
+            if identity_can_do:
+                if identity_can_do == identity["Arn"]:
+                    pattern = r"[\[\]]"
+                    writer.writerow([f"{identity['Name']}", f"{identity['Type']}",
+                                     f"{re.sub(pattern, '', str(allow_affected_resources))}",
+                                     f"{re.sub(pattern, '', str(deny_affected_resources))}"])
+                    break
             else:
                 pattern = r"[\[\]]"
                 writer.writerow([f"{identity['Name']}", f"{identity['Type']}", f"{re.sub(pattern,'', str(allow_affected_resources))}", f"{re.sub(pattern,'', str(deny_affected_resources))}"])

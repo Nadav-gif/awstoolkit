@@ -22,7 +22,7 @@ def get_parameters():
     parser = argparse.ArgumentParser()
 
     # Module
-    parser.add_argument("module", help="The module you want to run. Options: who-can, can-do", default="")
+    parser.add_argument("module", help="The module you want to run. Options: who-can, can-do, policy-diff", default="")
 
     # Authentication arguments
     parser.add_argument("-p", "--profile", help="The name of the profile you want to use", default="")
@@ -33,10 +33,14 @@ def get_parameters():
 
     # Modules parameters
     parser.add_argument("-a", "--action", help="Action to check", default="")
+    parser.add_argument("-of", "--output_format", help="CSV or JSON", default="csv")
     parser.add_argument("-o", "--output", help="Output directory path, if not stated export output to ./output/", default="output")
     parser.add_argument("-scp", "--include_scp", help="Analyze also the scp while calculating permissions.",
                         action=argparse.BooleanOptionalAction)
     parser.add_argument("-i", "--identity", help="The ARN of the identity to be checked if it can run the action", default="")
+    parser.add_argument("-p1", "--policy_a", help="The ARN of the first policy to compare", default="")
+    parser.add_argument("-p2", "--policy_b", help="The ARN of the second policy to compare", default="")
+
 
     args = parser.parse_args()
     return args

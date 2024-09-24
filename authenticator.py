@@ -43,6 +43,8 @@ def role_to_assume(session, role_arn):
         exit()
 
     return session
+
+
 def check_session_validity(session):
     try:
         client = session.client("sts")  # sts for temporary identification

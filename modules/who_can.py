@@ -1,6 +1,8 @@
 import re
 import csv
 import os
+from utils import get_policies_intersection, get_managed_policy_content, get_inline_policy_content, statement_parser, \
+    get_affected_resources
 
 
 def create_identity_list(client):
@@ -42,7 +44,7 @@ def create_identity_list(client):
         identity_list.append(
             {"Name": user["UserName"], "Type": "User", "InlinePolicies": user_inline_policies["PolicyNames"],
              "AttachedPolicies": policies_list, "PoliciesFromGroups": inline_policies_from_groups,
-             "PermissionsBoundary": user_permissions_boundary})
+             "PermissionsBoundary": user_permissions_boundary, "Arn": user["Arn"]})
 
     for role in role_list["Roles"]:
         role_attached_policies = client.list_attached_role_policies(RoleName=role["RoleName"])
@@ -55,43 +57,9 @@ def create_identity_list(client):
 
         identity_list.append(
             {"Name": role["RoleName"], "Type": "Role", "InlinePolicies": role_inline_policies["PolicyNames"],
-             "AttachedPolicies": policies_list, "PermissionsBoundary": ""})
+             "AttachedPolicies": policies_list, "PermissionsBoundary": "", "Arn":role["Arn"]})
 
     return identity_list
-
-
-def policy_intersection_resources(wider_action, thinner_action):
-    # Gets two actions and their resources compares two actions and returns the resources that are contained in both
-    # For example, if the attached policies give an identity ec2:startInstances on instances t*, and the permission boundary limit it to test, the result will be "test".
-    final_resource_list = []
-    calculated_allow_list = []
-
-    for resource in wider_action["resource"]:
-        for boundary_resource in thinner_action["resource"]:
-            if re.search(boundary_resource.replace("*", ".*"), resource):
-                final_resource_list.append(resource)
-            elif re.search(resource.replace("*", ".*"), boundary_resource):
-                final_resource_list.append(boundary_resource)
-    calculated_allow_list.append(
-        {"action": wider_action["action"], "resource": final_resource_list})  # The final action is the one from allow list
-
-    return calculated_allow_list
-
-
-def get_policies_intersection(actions_list, restricted_list):
-    # Get two lists of the format [{'action': 'a4b:Get*', 'resource': '*'}], and return the intersection between them
-    # This is useful to bring an allow_list from identities' policies and a list of the permission limiter (like SCP, or Permission Boundary). and get the actual permissions.
-    calculated_allow_list = []
-    for action in actions_list:
-        for boundary_action in restricted_list:
-
-            if re.search(boundary_action["action"].replace("*", ".*"), action["action"]):  # The Allow list action is contained in the PB (PB is bigger)
-                calculated_allow_list += policy_intersection_resources(action, boundary_action)
-
-            if re.search(action["action"].replace("*", ".*"), boundary_action["action"]):  # The PB action is contained in the Allow List (AL is bigger)
-                calculated_allow_list += policy_intersection_resources(boundary_action, action)
-
-    return calculated_allow_list
 
 
 def get_scp_content(sessions, target_id, allow_list, deny_list):
@@ -115,7 +83,7 @@ def calculate_scp(sessions, allow_list, deny_list):
     session = sessions[0]
     sts_client = session.client("sts")
     target_id = sts_client.get_caller_identity()["Account"]
-    allow_list, deny_list = get_scp_content(sessions, target_id, allow_list, deny_list) # The first comparison is between the identity policies and the SCPs that affect it directly
+    allow_list, deny_list = get_scp_content(sessions, target_id, allow_list, deny_list)  # The first comparison is between the identity policies and the SCPs that affect it directly
     organizations_client = sessions[1].client("organizations")
 
     while True:
@@ -144,60 +112,6 @@ def calculate_permission_boundary(client, allow_list, deny_list, permissions_bou
     return calculated_allow_list, calculated_deny_list
 
 
-def get_affected_resources(action_parameter, identity_actions_list):
-    # Get the action parameter and the actions list in format [{'action': 'a4b:Get*', 'resource': '*'}], and return a list of the affected resources.
-    affected_resources = []
-    for policy_action in identity_actions_list:
-        if re.search(policy_action["action"].lower().replace("*", ".*"), action_parameter.lower()):
-            affected_resources.append(policy_action["resource"])
-            if policy_action["resource"] == "*" or policy_action["resource"] == ["*"]:
-                affected_resources = ["*"]
-                break
-    flattened_resources = [item for sublist in affected_resources for item in
-                          (sublist if isinstance(sublist, list) else [sublist])]
-    return list(set(flattened_resources))
-
-
-def get_managed_policy_content(client, policy_arn):
-    # Get a policy_arn and return a list of its statements.
-    # This work for now only for managed policy because we get ARN (inline doesn't have ARN). Need to make more generic.
-    policy_details = client.get_policy(PolicyArn=policy_arn)
-    default_version_id = policy_details["Policy"]["DefaultVersionId"]
-    policy_content = client.get_policy_version(PolicyArn=policy_arn, VersionId=default_version_id)
-    policy_statement = policy_content["PolicyVersion"]["Document"]["Statement"]
-    return policy_statement
-
-
-def get_inline_policy_content(client, identity_name, identity_type, policy_name):
-    if identity_type == "User":
-        policy_content = client.get_user_policy(PolicyName=policy_name, UserName=identity_name)
-    elif identity_type == "Role":
-        policy_content = client.get_role_policy(PolicyName=policy_name, RoleName=identity_name)
-    elif identity_type == "Group":
-        policy_content = client.get_group_policy(PolicyName=policy_name, GroupName=identity_name)
-
-        client.get_group_policy(PolicyName=policy_name, GroupName=identity_name)
-
-    else:
-        print("Error getting inline policy, quiting")
-        exit()
-    policy_statement = policy_content["PolicyDocument"]["Statement"]
-    return policy_statement
-
-
-def statement_parser(statement, identity_allow_list, identity_deny_list):
-    # Function gets a policy statement and parse it to split the content between the allow and deny list.
-    statement_actions = [statement["Action"]] if isinstance(statement["Action"], str) else statement["Action"]
-    statement_resources = [statement["Resource"]] if isinstance(statement["Resource"], str) else statement["Resource"]
-    if statement["Effect"] == "Allow":
-        for action in statement_actions:
-            identity_allow_list.append({"action": action, "resource": statement["Resource"]})
-    if statement["Effect"] == "Deny":
-        for action in statement_actions:
-            identity_deny_list.append({"action": action, "resource": statement["Resource"]})
-    return identity_allow_list, identity_deny_list
-
-
 def create_allow_deny_lists(client, identity):
     # Function gets an identity from identity list and return two lists:
     # Allow list -> The list contains all allow actions in all policies that affect the identity, i.e [{'action': 'a4b:Get*', 'resource': '*'}]
@@ -206,45 +120,59 @@ def create_allow_deny_lists(client, identity):
     for attached_policy in identity["AttachedPolicies"]:
         policy_statements = get_managed_policy_content(client, attached_policy)
         for statement in policy_statements:
-            statement_parser(statement, identity_allow_list, identity_deny_list)
+            identity_allow_list, identity_deny_list = statement_parser(statement, identity_allow_list, identity_deny_list)
 
     for inline_policy_name in identity["InlinePolicies"]:
         policy_statements = get_inline_policy_content(client, identity["Name"], identity["Type"], inline_policy_name)
         for statement in policy_statements:
-            statement_parser(statement, identity_allow_list, identity_deny_list)
+            identity_allow_list, identity_deny_list = statement_parser(statement, identity_allow_list, identity_deny_list)
 
     if identity["Type"] == "User":
         for group_inline_policy in identity["PoliciesFromGroups"]:
             policy_statement = get_inline_policy_content(client, group_inline_policy["GroupName"], "Group", group_inline_policy["PolicyName"])
             for statement in policy_statement:
-                statement_parser(statement, identity_allow_list, identity_deny_list)
+                identity_allow_list, identity_deny_list = statement_parser(statement, identity_allow_list, identity_deny_list)
 
     return identity_allow_list, identity_deny_list
 
 
-def who_can(sessions, action_parameter, include_scp, output_path):
+def who_can(sessions, action_parameter, include_scp, output_path, output_format):
     iam_client = sessions[0].client("iam")
     identity_list = create_identity_list(iam_client)
-    output_filepath = f"{output_path}/{action_parameter.replace(':', '_')}.csv"
-    os.makedirs(os.path.dirname(output_filepath), exist_ok=True)
+    final_output_list = []
 
-    with open(output_filepath, "w", newline="") as output_file:
-        writer = csv.writer(output_file)
-        output_file.write("Identity Name,Identity Type,Allow on,Deny on\n")
-        for identity in identity_list:
-            identity_allow_list, identity_deny_list = create_allow_deny_lists(iam_client, identity)
-            if identity["PermissionsBoundary"]:
-                identity_allow_list, identity_deny_list = calculate_permission_boundary(iam_client, identity_allow_list, identity_deny_list, identity["PermissionsBoundary"])
-            if include_scp:
-                identity_allow_list, identity_deny_list = calculate_scp(sessions, identity_allow_list, identity_deny_list)
-            allow_affected_resources = get_affected_resources(action_parameter, identity_allow_list)
-            deny_affected_resources = get_affected_resources(action_parameter, identity_deny_list)
-            if deny_affected_resources == ["*"]:  # Deny all - Move to next identity
-                continue
-            if not allow_affected_resources:  # There's no allow on this action at all. Move to next identity.
-                continue
-            if allow_affected_resources == deny_affected_resources:  # Regarding the discussed action, resources are the same for Allow and Deny effects. Move to next identity.
-                continue
-            else:
+    for identity in identity_list:
+        identity_allow_list, identity_deny_list = create_allow_deny_lists(iam_client, identity)
+        if identity["PermissionsBoundary"]:
+            identity_allow_list, identity_deny_list = calculate_permission_boundary(iam_client, identity_allow_list,
+                                                                                    identity_deny_list,
+                                                                                    identity["PermissionsBoundary"])
+        if include_scp:
+            identity_allow_list, identity_deny_list = calculate_scp(sessions, identity_allow_list, identity_deny_list)
+        allow_affected_resources = get_affected_resources(action_parameter, identity_allow_list)
+        deny_affected_resources = get_affected_resources(action_parameter, identity_deny_list)
+        if deny_affected_resources == ["*"]:  # Deny all - Move to next identity
+            continue
+        if not allow_affected_resources:  # There's no allow on this action at all. Move to next identity.
+            continue
+        if allow_affected_resources == deny_affected_resources:  # Regarding the discussed action, resources are the same for Allow and Deny effects. Move to next identity.
+            continue
+
+        output_object = {"Name": identity["Name"], "Type": identity["Type"], "Allowed": allow_affected_resources,
+                         "Denied": deny_affected_resources, "Arn": identity["Arn"]}
+        final_output_list.append(output_object)
+
+    if output_format.lower() == "csv":
+        output_filepath = f"{output_path}/{action_parameter.replace(':', '_')}.csv"
+        os.makedirs(os.path.dirname(output_filepath), exist_ok=True)
+        with open(output_filepath, "w", newline="") as output_file:
+            writer = csv.writer(output_file)
+            output_file.write("Identity Name,Identity Type,Allow on,Deny on\n")
+
+            for identity in final_output_list:
                 pattern = r"[\[\]]"
-                writer.writerow([f"{identity['Name']}", f"{identity['Type']}", f"{re.sub(pattern,'', str(allow_affected_resources))}", f"{re.sub(pattern,'', str(deny_affected_resources))}"])
+                writer.writerow([f"{identity['Name']}", f"{identity['Type']}", f"{re.sub(pattern,'', str(identity['Allowed']))}", f"{re.sub(pattern,'', str(identity['Denied']))}"])
+
+    if output_format.lower() == "json":
+        return {"output": final_output_list}
+

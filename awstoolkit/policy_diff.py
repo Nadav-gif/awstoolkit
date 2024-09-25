@@ -1,5 +1,7 @@
-from utils import get_managed_policy_content, statement_parser, get_policies_intersection, remove_dict_duplicates
+from .utils import get_managed_policy_content, statement_parser, get_policies_intersection, remove_dict_duplicates
+from .authenticator import authenticate
 import csv
+
 
 def create_allow_deny_lists(client, policy_arn):
     # Function gets an identity from identity list and return two lists:
@@ -62,7 +64,7 @@ def generate_output_for_csv(allow_list, deny_list, writer):
     writer.writerow(['\n'])
 
 
-def policy_diff(sessions, output_format, output_path, policy_a, policy_b):  #ARN's
+def policy_diff_execute(sessions, output_format, output_path, policy_a, policy_b):  #ARN's
     iam_client = sessions[0].client("iam")
     policy_a_allow_list, policy_a_deny_list = create_allow_deny_lists(iam_client, policy_a)
     policy_b_allow_list, policy_b_deny_list = create_allow_deny_lists(iam_client, policy_b)
@@ -92,6 +94,18 @@ def policy_diff(sessions, output_format, output_path, policy_a, policy_b):  #ARN
 
         return {'output': final_output}
 
+def policy_diff(**kwargs):
+    sessions = authenticate(profile=kwargs.get("profile"),
+                            access_key=kwargs.get("access_key"),
+                            secret_key=kwargs.get("secret_key"),
+                            session_token=kwargs.get("session_token"),
+                            role_arn=kwargs.get("role_arn"))
+
+    return policy_diff_execute(sessions,
+                                output_format="json",
+                               output_path="",
+                               policy_a=kwargs.get("p1"),
+                               policy_b=kwargs.get("p2"))
 
 
 

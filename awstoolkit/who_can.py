@@ -1,8 +1,10 @@
 import re
 import csv
 import os
-from utils import get_policies_intersection, get_managed_policy_content, get_inline_policy_content, statement_parser, \
+from .utils import get_policies_intersection, get_managed_policy_content, get_inline_policy_content, statement_parser, \
     get_affected_resources
+from .authenticator import authenticate
+
 
 
 def create_identity_list(client):
@@ -136,7 +138,7 @@ def create_allow_deny_lists(client, identity):
     return identity_allow_list, identity_deny_list
 
 
-def who_can(sessions, action_parameter, include_scp, output_path, output_format):
+def who_can_execute(sessions, action_parameter, include_scp, output_path, output_format):
     iam_client = sessions[0].client("iam")
     identity_list = create_identity_list(iam_client)
     final_output_list = []
@@ -176,3 +178,11 @@ def who_can(sessions, action_parameter, include_scp, output_path, output_format)
     if output_format.lower() == "json":
         return {"output": final_output_list}
 
+
+def who_can(**kwargs):
+    sessions = authenticate(profile=kwargs.get("profile"),
+                            access_key=kwargs.get("access_key"),
+                            secret_key=kwargs.get("secret_key"),
+                            session_token=kwargs.get("session_token"),
+                            role_arn=kwargs.get("role_arn"))
+    return who_can_execute(sessions, kwargs.get("action"), include_scp=kwargs.get("include_scp"), output_path="", output_format="json")

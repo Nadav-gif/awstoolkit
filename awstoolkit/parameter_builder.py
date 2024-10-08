@@ -5,7 +5,7 @@ def action_parameter_validator(session, action):
     # Checks if the required action exists
     service, action_method = action.split(":")[0], action.split(":")[1]
     action_client = session.client(service, region_name="us-east-2")
-    methods = [method.replace("_", "").lower() for method in dir(action_client) if not method.startswith("_")] # return a list of all callable actions
+    methods = [method.replace("_", "").lower() for method in dir(action_client) if not method.startswith("_")]  # return a list of all callable actions
     action_method = action_method.lower()
     if action_method not in methods:
         print("Please enter a valid action")

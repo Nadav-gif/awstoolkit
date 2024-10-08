@@ -2,6 +2,7 @@ import boto3
 
 
 def authenticate(**kwargs):
+    # Gets the authentication parameters (keys, role ARN, profile) and return the sessions that can be used to communicate with AWS.
     if kwargs.get("profile"):
         # shows current user
         session = boto3.Session(profile_name=kwargs.get("profile"))
@@ -29,6 +30,7 @@ def authenticate(**kwargs):
 
 # Gives keys to use the role
 def role_to_assume(session, role_arn):
+    # Assume the relevant role and return the session that was created.
     try:
         client = session.client("sts")
         response = client.assume_role(RoleArn=role_arn, RoleSessionName="aws_toolkit")
@@ -36,7 +38,7 @@ def role_to_assume(session, role_arn):
                                 aws_secret_access_key=response.get('Credentials').get('SecretAccessKey'),
                                 aws_session_token=response.get('Credentials').get('SessionToken'))
         client = session.client("sts")
-        response = client.get_caller_identity()
+        client.get_caller_identity()
     except Exception as e:
         print("Failed to assume role - Check role ARN and policies")
         exit()
@@ -45,9 +47,10 @@ def role_to_assume(session, role_arn):
 
 
 def check_session_validity(session):
+    # Gets a session and check if the authentication was successful, exit the program if not
     try:
         client = session.client("sts")  # sts for temporary identification
-        response = client.get_caller_identity()
+        client.get_caller_identity()
     except:
         print("Authentication failed, existing")
         exit()

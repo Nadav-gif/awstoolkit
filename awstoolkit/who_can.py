@@ -1,15 +1,15 @@
 import re
 import csv
 import os
-from .utils import get_policies_intersection, get_managed_policy_content, get_inline_policy_content, statement_parser, \
+from awstoolkit.utils import get_policies_intersection, get_managed_policy_content, get_inline_policy_content, statement_parser, \
     get_affected_resources
-from .authenticator import authenticate
-
+from awstoolkit.authenticator import authenticate
+from awstoolkit.parameter_builder import action_parameter_validator
 
 
 def create_identity_list(client):
     # Return a list of all the identities.
-    # The format is: {"Name": "username", "Type": "User", "InlinePolicies": ["Policy1, Policy2], "AttachedPolicies": [policy3_arn]}
+    # The format is: {"Name": "username", "Type": "User", "InlinePolicies": ["Policy1, Policy2], "AttachedPolicies": [policy3_arn], "Arn":"arn:aws:iam..."}
     identity_list = []
     users_list = client.list_users()
     role_list = client.list_roles()
@@ -57,9 +57,16 @@ def create_identity_list(client):
 
         role_inline_policies = client.list_role_policies(RoleName=role["RoleName"])
 
+        # Get the permissions boundary of the role
+        role_permissions_boundary = client.get_role(RoleName=role["RoleName"])
+        if "PermissionsBoundary" in role_permissions_boundary["Role"].keys():
+            role_permissions_boundary = role_permissions_boundary["Role"]["PermissionsBoundary"]["PermissionsBoundaryArn"]
+        else:
+            role_permissions_boundary = ""
+
         identity_list.append(
             {"Name": role["RoleName"], "Type": "Role", "InlinePolicies": role_inline_policies["PolicyNames"],
-             "AttachedPolicies": policies_list, "PermissionsBoundary": "", "Arn":role["Arn"]})
+             "AttachedPolicies": policies_list, "PermissionsBoundary": role_permissions_boundary, "Arn":role["Arn"]})
 
     return identity_list
 
@@ -129,7 +136,7 @@ def create_allow_deny_lists(client, identity):
         for statement in policy_statements:
             identity_allow_list, identity_deny_list = statement_parser(statement, identity_allow_list, identity_deny_list)
 
-    if identity["Type"] == "User":
+    if identity["Type"] == "User":  # checks permissions for the group (only users can be in a group)
         for group_inline_policy in identity["PoliciesFromGroups"]:
             policy_statement = get_inline_policy_content(client, group_inline_policy["GroupName"], "Group", group_inline_policy["PolicyName"])
             for statement in policy_statement:
@@ -179,10 +186,12 @@ def who_can_execute(sessions, action_parameter, include_scp, output_path, output
         return {"output": final_output_list}
 
 
+# who_can run when called from the code.
 def who_can(**kwargs):
     sessions = authenticate(profile=kwargs.get("profile"),
                             access_key=kwargs.get("access_key"),
                             secret_key=kwargs.get("secret_key"),
                             session_token=kwargs.get("session_token"),
                             role_arn=kwargs.get("role_arn"))
+    action_parameter_validator(sessions[0], kwargs.get("action"))  # returns if the action exists or not
     return who_can_execute(sessions, kwargs.get("action"), include_scp=kwargs.get("include_scp"), output_path="", output_format="json")

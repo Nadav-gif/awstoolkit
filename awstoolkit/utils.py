@@ -1,4 +1,5 @@
 import re
+from awstoolkit.all_actions_list import get_all_actions
 
 
 def get_managed_policy_content(client, policy_arn):
@@ -31,13 +32,35 @@ def get_inline_policy_content(client, identity_name, identity_type, policy_name)
 
 def statement_parser(statement, identity_allow_list, identity_deny_list):
     # Function gets a policy statement and parse it to split the content between the allow and deny list.
-    statement_actions = [statement["Action"]] if isinstance(statement["Action"], str) else statement["Action"]
-    if statement["Effect"] == "Allow":
-        for action in statement_actions:
-            identity_allow_list.append({"action": action, "resource": statement["Resource"]})
-    if statement["Effect"] == "Deny":
-        for action in statement_actions:
-            identity_deny_list.append({"action": action, "resource": statement["Resource"]})
+    if statement.get("Action"):
+        statement_actions = [statement["Action"]] if isinstance(statement["Action"], str) else statement["Action"]
+        if statement["Effect"] == "Allow":
+            for action in statement_actions:
+                identity_allow_list.append({"action": action, "resource": statement["Resource"]})
+        if statement["Effect"] == "Deny":
+            for action in statement_actions:
+                identity_deny_list.append({"action": action, "resource": statement["Resource"]})
+
+    elif statement.get("NotAction"):
+        statement_notactions = [statement["NotAction"]] if isinstance(statement["NotAction"], str) else statement["NotAction"]
+        all_actions = get_all_actions()
+        if statement["Effect"] == "Allow":
+            for action in all_actions:
+                is_in_not_action = False
+                for not_action in statement_notactions:
+                    if re.search(not_action.lower().replace("*", ".*"), action.lower()):
+                        is_in_not_action = True
+                if not is_in_not_action:
+                    identity_allow_list.append({"action": action, "resource": statement["Resource"]})
+        if statement["Effect"] == "Deny":
+            for action in all_actions:
+                is_in_not_action = False
+                for not_action in statement_notactions:
+                    if re.search(not_action.lower().replace("*", ".*"), action.lower()):
+                        is_in_not_action = True
+                if not is_in_not_action:
+                    identity_deny_list.append({"action": action, "resource": statement["Resource"]})
+
     return identity_allow_list, identity_deny_list
 
 
@@ -50,8 +73,8 @@ def get_affected_resources(action_parameter, identity_actions_list):
             if policy_action["resource"] == "*" or policy_action["resource"] == ["*"]:
                 affected_resources = ["*"]
                 break
-    flattened_resources = [item for sublist in affected_resources for item in
-                          (sublist if isinstance(sublist, list) else [sublist])]
+    flattened_resources = [item for sublist in affected_resources for item in  # get rid of duplicates in the resource list. Learn
+                           (sublist if isinstance(sublist, list) else [sublist])]
     return list(set(flattened_resources))
 
 
@@ -90,6 +113,7 @@ def get_policies_intersection(actions_list, restricted_list):
 
 
 def remove_dict_duplicates(dict_list):
+    # Get a list of dictionaries and remove duplicates
     unique_list = []
     for d in dict_list:
         if d not in unique_list:

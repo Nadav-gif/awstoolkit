@@ -73,7 +73,7 @@ def get_affected_resources(action_parameter, identity_actions_list):
             if policy_action["resource"] == "*" or policy_action["resource"] == ["*"]:
                 affected_resources = ["*"]
                 break
-    flattened_resources = [item for sublist in affected_resources for item in  # get rid of duplicates in the resource list. Learn
+    flattened_resources = [item for sublist in affected_resources for item in  # get rid of duplicates in the resource list.
                            (sublist if isinstance(sublist, list) else [sublist])]
     return list(set(flattened_resources))
 

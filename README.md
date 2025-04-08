@@ -1,7 +1,7 @@
 # awstoolkit
 
 AWS Toolkit (`awstoolkit`) is a Python utility designed to help interacting with AWS, and particularly to help with activities that can be time-consuming in the Identity and Access Management (IAM) service.
-When AWS verify if an identity has permissions to run a certain action, there are several factors that can be used to grant or remove permissions. Those factors need to be concidered during the verification process.
+When AWS verify if an identity has permissions to run a certain action, there are several factors that can be used to grant or remove permissions. These factors need to be considered during the verification process.
 The flow of the process (and its components), as explained by AWS is:
 
 ![image](https://github.com/user-attachments/assets/432b0f5b-f233-429c-8774-75244325a2ae)
@@ -34,7 +34,7 @@ git clone https://github.com/Nadav-gif/awstoolkit.git
 cd awstoolkit
 pip install -r requirements.txt
 
-To use the project as a pyton module
+To use the project as a python module
 python setup.py install
 ```
 
